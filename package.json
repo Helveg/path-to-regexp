@@ -24,6 +24,7 @@
     "dist/"
   ],
   "scripts": {
+    "_test": "ts-scripts test",
     "bench": "vitest bench",
     "build": "ts-scripts build",
     "format": "ts-scripts format",
@@ -31,7 +32,7 @@
     "prepare": "ts-scripts install && npm run build",
     "size": "size-limit",
     "specs": "ts-scripts specs",
-    "test": "ts-scripts test && npm run size"
+    "test": "npx npm-run-all _test size"
   },
   "devDependencies": {
     "@borderless/ts-scripts": "^0.15.0",
