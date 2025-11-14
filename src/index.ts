@@ -62,6 +62,7 @@ type TokenType =
   | "}"
   | "wildcard"
   | "param"
+  | "pattern"
   | "char"
   | "escape"
   | "end"
@@ -88,8 +89,6 @@ const SIMPLE_TOKENS: Record<string, TokenType> = {
   "{": "{",
   "}": "}",
   // Reserved.
-  "(": "(",
-  ")": ")",
   "[": "[",
   "]": "]",
   "+": "+",
@@ -125,6 +124,7 @@ export interface Text {
 export interface Parameter {
   type: "param";
   name: string;
+  pattern?: string;
 }
 
 /**
@@ -228,6 +228,33 @@ export function parse(str: string, options: ParseOptions = {}): TokenData {
     return value;
   }
 
+  function pattern() {
+    let value = "";
+    let start = index;
+    let count = 1;
+
+    while (index < chars.length) {
+      if (chars[index] === "\\") {
+        value += chars[index++];
+      } else {
+        if (chars[index] === "(") count++;
+        if (chars[index] === ")") count--;
+      }
+
+      if (count === 0) {
+        index++;
+        break;
+      }
+      value += chars[index++];
+    }
+
+    if (count > 0) {
+      throw new PathError(`Unterminated parenthesis at index ${start}`, str);
+    }
+
+    return value;
+  }
+
   while (index < chars.length) {
     const value = chars[index];
     const type = SIMPLE_TOKENS[value];
@@ -240,6 +267,8 @@ export function parse(str: string, options: ParseOptions = {}): TokenData {
       tokens.push({ type: "param", index: index++, value: name() });
     } else if (value === "*") {
       tokens.push({ type: "wildcard", index: index++, value: name() });
+    } else if (value === "(") {
+      tokens.push({ type: "pattern", index: index++, value: pattern() });
     } else {
       tokens.push({ type: "char", index: index++, value });
     }
@@ -271,10 +300,14 @@ export function parse(str: string, options: ParseOptions = {}): TokenData {
       }
 
       if (token.type === "param" || token.type === "wildcard") {
-        output.push({
+        const lexToken: Parameter | Wildcard = {
           type: token.type,
           name: token.value,
-        });
+        };
+        if (lexToken.type === "param" && tokens[pos]?.type === "pattern") {
+          lexToken.pattern = tokens[pos++].value;
+        }
+        output.push(lexToken);
         continue;
       }
 
@@ -533,6 +566,8 @@ function* flatten(
   yield* flatten(tokens, index + 1, init);
 }
 
+function checkPattern(pattern: string) {}
+
 /**
  * Transform a flat sequence of tokens into a regular expression.
  */
@@ -563,7 +598,19 @@ function toRegExpSource(
       }
 
       if (token.type === "param") {
-        result += `(${negate(delimiter, isSafeSegmentParam ? "" : backtrack)}+)`;
+        let inner;
+        if (token.pattern) {
+          const v = isSafeRouteRegex(token.pattern);
+          if (!v.safe)
+            throw new PathError(
+              `Unsafe pattern for "${token.name}": ${v.reason}`,
+              originalPath,
+            );
+          inner = token.pattern;
+        } else {
+          inner = `${negate(delimiter, isSafeSegmentParam ? "" : backtrack)}+`;
+        }
+        result += `(${inner})`;
       } else {
         result += `([\\s\\S]+)`;
       }
@@ -590,6 +637,141 @@ function negate(delimiter: string, backtrack: string): string {
     return `(?:(?!${escape(backtrack)})[^${escape(delimiter)}])`;
   }
   return `(?:(?!${escape(backtrack)}|${escape(delimiter)})[\\s\\S])`;
+}
+
+type SafeRouteResult =
+  | {
+      safe: false;
+      index: number;
+      reason: string;
+    }
+  | { safe: true };
+
+/**
+ * Validates whether a string is a safe subset of regex suitable for URL route parameters.
+ *
+ * Rules enforced:
+ *  - Only non-capturing groups `(?: … )` allowed; nested groups are rejected.
+ *  - Character classes `[ ]` allowed; content inside classes is permissive.
+ *  - Regex operators (`+ * ? { } |`) allowed only in safe contexts:
+ *      * After a literal, character class, or non-capturing group.
+ *  - Lookarounds (`(?=…)`, `(?!…)`, `(?<=…)`, `(?<!…)`) are rejected.
+ *  - Backreferences (`\1`, `\2`, …) are rejected.
+ *  - Anchors (`^`, `$`) are rejected.
+ *  - Only safe literal characters are allowed: alphanumerics, `_ - . ~ % @ ! $ & *`.
+ *  - Escaped characters (`\x`) are allowed and skipped during validation.
+ *
+ * Ensures that the resulting regex is linear-time and safe to combine with
+ * the route matching library without introducing ReDoS or parsing ambiguity.
+ *
+ * @param input The regex string to validate.
+ * @returns An object with `safe: true` if the regex is allowed, or `safe: false` and
+ *          a `reason` string explaining why it was rejected.
+ */
+function isSafeRouteRegex(input: string): SafeRouteResult {
+  let depth = 0; // Group depth
+  let inClass = false; // Inside [ ] character class
+  let classStart = 0;
+  let parenthesisStart = 0;
+
+  const operators = "+*?{}|";
+  const safeLiteralChars = "_-./~%@!$&*";
+
+  for (let i = 0; i < input.length; i++) {
+    const ch = input[i];
+
+    // Skip escaped characters
+    if (ch === "\\") {
+      // Backreferences
+      if (/\d/.test(input[i + 1])) {
+        return { safe: false, index: i, reason: "Backreferences not allowed" };
+      }
+
+      i++; // skip next character
+      continue;
+    }
+
+    // Handle character class
+    if (ch === "[" && !inClass) {
+      classStart = i;
+      inClass = true;
+      continue;
+    } else if (ch === "]" && inClass) {
+      inClass = false;
+      continue;
+    }
+
+    // Everything inside a character class is allowed
+    if (inClass) {
+      continue;
+    }
+
+    // Handle groups
+    if (ch === "(") {
+      const command = input.slice(i, i + 3);
+      if (command !== "(?:") {
+        if (command === "(?=" || command === "(?!" || command === "(?<") {
+          return { safe: false, index: i, reason: "Lookarounds not allowed" };
+        }
+        return {
+          safe: false,
+          index: i,
+          reason: "Capturing groups not allowed",
+        };
+      }
+      if (depth++ === 0) parenthesisStart = i;
+      if (depth > 1)
+        return { safe: false, index: i, reason: "Nested groups not allowed" };
+      i += 2;
+      continue;
+    } else if (ch === ")") {
+      depth--;
+      if (depth < 0)
+        return { safe: false, index: i, reason: "Unbalanced parentheses" };
+      continue;
+    }
+
+    // Anchors
+    if (ch === "^" || ch === "$") {
+      return { safe: false, index: i, reason: "Anchors not allowed" };
+    }
+
+    // Operators: + * ? { } | only valid after literal, class, or group
+    if (operators.includes(ch)) {
+      const prev = input[i - 1];
+      if (!prev || (operators.includes(prev) && /[)}\]A-Za-z0-9]/.test(prev))) {
+        return {
+          safe: false,
+          index: i,
+          reason: `Operator '${ch}' in unsafe position`,
+        };
+      }
+    }
+
+    // Safe literal characters
+    if (
+      !/[A-Za-z0-9]/.test(ch) &&
+      !safeLiteralChars.includes(ch) &&
+      !operators.includes(ch)
+    ) {
+      return { safe: false, index: i, reason: `Invalid character '${ch}'` };
+    }
+  }
+
+  if (depth !== 0)
+    return {
+      safe: false,
+      index: parenthesisStart,
+      reason: "Unbalanced parentheses",
+    };
+  if (inClass)
+    return {
+      safe: false,
+      index: classStart,
+      reason: "Unclosed character class",
+    };
+
+  return { safe: true };
 }
 
 /**

@@ -146,6 +146,16 @@ export const PARSER_TESTS: ParserTestSet[] = [
       "\\\\:test",
     ),
   },
+  {
+    path: "/:r(^\\w+$)",
+    expected: new TokenData(
+      [
+        { type: "text", value: "/" },
+        { type: "param", name: "r", pattern: "^\\w+$" },
+      ],
+      "/:r(^\\w+$)",
+    ),
+  },
 ];
 
 export const STRINGIFY_TESTS: StringifyTestSet[] = [
@@ -432,10 +442,10 @@ export const MATCH_TESTS: MatchTestSet[] = [
         },
       },
       {
-        input: "/;,:@&=+$-_.!~*()",
+        input: "/;,':@&=+$-_.!~*()",
         expected: {
-          path: "/;,:@&=+$-_.!~*()",
-          params: { test: ";,:@&=+$-_.!~*()" },
+          path: "/;,':@&=+$-_.!~*()",
+          params: { test: ";,':@&=+$-_.!~*()" },
         },
       },
       {
@@ -912,6 +922,26 @@ export const MATCH_TESTS: MatchTestSet[] = [
       {
         input: "/.+*?{}=^!:$[]|",
         expected: { path: "/.+*?{}=^!:$[]|", params: {} },
+      },
+    ],
+  },
+
+  /**
+   * Parameters with patterns
+   */
+  {
+    path: "/route/:param([\\w\\d\\-]+[\\%7C|]+\\w+)",
+    tests: [
+      {
+        input: "/route/auth|0000",
+        expected: { path: "/route/auth|0000", params: { param: "auth|0000" } },
+      },
+      {
+        input: "/route/auth%7C0000",
+        expected: {
+          path: "/route/auth%7C0000",
+          params: { param: "auth|0000" },
+        },
       },
     ],
   },

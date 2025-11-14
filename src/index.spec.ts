@@ -166,6 +166,54 @@ describe("path-to-regexp", () => {
         expect(stack).toContain("index.spec.ts");
       }
     });
+
+    describe("regexp pattern errors", () => {
+      it("should prohibit anchors", () => {
+        expect(() => pathToRegexp("/:foo(^1$)")).toThrow(
+          new PathError(
+            'Unsafe pattern for "foo": Anchors not allowed',
+            "/:foo(^1$)",
+          ),
+        );
+      });
+      it("should prohibit backreferences", () => {
+        expect(() => pathToRegexp("/:foo(\\1)")).toThrow(
+          new PathError(
+            'Unsafe pattern for "foo": Backreferences not allowed',
+            "/:foo(\\1)",
+          ),
+        );
+      });
+      it("should prohibit capturing groups", () => {
+        expect(() => pathToRegexp("/:foo((1))")).toThrow(
+          new PathError(
+            'Unsafe pattern for "foo": Capturing groups not allowed',
+            "/:foo((1))",
+          ),
+        );
+      });
+      it("should prohibit nested groups", () => {
+        expect(() => pathToRegexp("/:foo((?:(?:1)+)+)")).toThrow(
+          new PathError(
+            'Unsafe pattern for "foo": Nested groups not allowed',
+            "/:foo((?:(?:1)+)+)",
+          ),
+        );
+      });
+      it("should report unclosed character class", () => {
+        expect(() => pathToRegexp("/:foo([)")).toThrow(
+          new PathError(
+            'Unsafe pattern for "foo": Unclosed character class',
+            "/:foo([)",
+          ),
+        );
+      });
+      it("should report unterminated parenthesis", () => {
+        expect(() => pathToRegexp("/:foo((?:)")).toThrow(
+          new PathError("Unterminated parenthesis at index 6", "/:foo((?:)"),
+        );
+      });
+    });
   });
 
   describe("stringify errors", () => {
