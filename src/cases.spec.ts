@@ -147,13 +147,13 @@ export const PARSER_TESTS: ParserTestSet[] = [
     ),
   },
   {
-    path: "/:r(^\\w+$)",
+    path: "/:route(^\\w+$)",
     expected: new TokenData(
       [
         { type: "text", value: "/" },
-        { type: "param", name: "r", pattern: "^\\w+$" },
+        { type: "param", name: "route", pattern: "^\\w+$" },
       ],
-      "/:r(^\\w+$)",
+      "/:route(^\\w+$)",
     ),
   },
 ];
@@ -941,6 +941,18 @@ export const MATCH_TESTS: MatchTestSet[] = [
         expected: {
           path: "/route/auth%7C0000",
           params: { param: "auth|0000" },
+        },
+      },
+    ],
+  },
+  {
+    path: "/route/:uuid([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})",
+    tests: [
+      {
+        input: "/route/3f673f6f-7b62-4cc3-9064-cd767a882222",
+        expected: {
+          path: "/route/3f673f6f-7b62-4cc3-9064-cd767a882222",
+          params: { uuid: "3f673f6f-7b62-4cc3-9064-cd767a882222" },
         },
       },
     ],
