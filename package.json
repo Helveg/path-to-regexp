@@ -1,5 +1,5 @@
 {
-  "name": "path-to-regexp",
+  "name": "@helveg/path-to-regexp",
   "version": "8.3.0",
   "description": "Express style path to RegExp utility",
   "keywords": [
@@ -24,12 +24,13 @@
     "dist/"
   ],
   "scripts": {
+    "_install": "ts-scripts install",
     "_test": "ts-scripts test",
     "bench": "vitest bench",
     "build": "ts-scripts build",
     "format": "ts-scripts format",
     "lint": "ts-scripts lint",
-    "prepare": "ts-scripts install && npm run build",
+    "prepare": "npx npm-run-all _install build",
     "size": "size-limit",
     "specs": "ts-scripts specs",
     "test": "npx npm-run-all _test size"
